@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 
+
 class SapHanaHook(DbApiHook):
     conn_name_attr = "hana_conn_id"
     default_conn_name = "hana_default"
