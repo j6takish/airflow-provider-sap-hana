@@ -1,0 +1,17 @@
+services:
+  hana-express:
+    container_name: hana-express
+    volumes:
+      - ./hana:/hana/mounts
+    image: saplabs/hanaexpress
+    environment:
+      MASTER_PASSWORD: HXEHana1
+    ports:
+    - "39013:39013"
+    - "39017:39017"
+    - "39041-39045:39041-39045"
+    - "1128-1129:1128-1129"
+    - "59013-59014:59013-59014"
+    entrypoint: /bin/bash -c
+    command:
+      - '/run_hana --agree-to-sap-license'
