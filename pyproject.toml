@@ -1,0 +1,56 @@
+[build-system]
+requires = [
+    "setuptools",
+    "wheel"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "airflow-provider-sap-hana"
+requires-python = ">=3.9"
+authors = [
+    { name = "Jonathan Takish", email = "jonathan.takish@gmail.com" }
+
+]
+
+license = { text = "Apache License 2.0" }
+description = "An Airflow provider to connect to SAP HANA"
+classifiers = [
+    "Framework :: Apache Airflow",
+    "Framework :: Apache Airflow :: Provider"
+]
+dynamic = [
+    "version"
+]
+dependencies = [
+    "apache-airflow>=2.9",
+    "hdbcli>=2.23.24",
+    "sqlalchemy-hana>=3.0.0"
+]
+
+[project.urls]
+Source = "https://github.com/j6takish/airflow-provider-sap-hana"
+
+[project.readme]
+file = "README.md"
+content-type = "text/markdown"
+
+[project.entry-points.apache_airflow_provider]
+provider_info = "airflow_provider_sap_hana.__init__:get_provider_info"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.dynamic]
+version = { attr = "airflow_provider_sap_hana.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = [
+    "*tests",
+    "docker-compose.yaml",
+    "create_hana_tables.sh",
+    ".git",
+    ".idea",
+    ".gitignore"
+]
