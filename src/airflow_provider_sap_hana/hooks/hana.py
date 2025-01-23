@@ -148,7 +148,7 @@ class SapHanaHook(DbApiHook):
         :param row: A ResultRow object.
         :return: A tuple with all 'datetime' values converted to string, or unchanged if they are of any other type
         """
-        return tuple(map(cls._make_resultrow_cell_serializable, row))
+        return tuple(map(cls._make_resultrow_cell_serializable, row)) if row else tuple()
 
     def _make_common_data_structure(self, result: T | Sequence[T]) -> tuple | list[tuple]:
         """
