@@ -161,6 +161,9 @@ section-order = [
   "testing"
 ]
 
+[tool.ruff.lint.isort.sections]
+testing = ["dev", "providers.tests", "task_sdk.tests", "tests_common", "tests"]
+
 [tool.ruff.lint.flake8-type-checking]
 exempt-modules = ["typing", "typing_extensions"]
 

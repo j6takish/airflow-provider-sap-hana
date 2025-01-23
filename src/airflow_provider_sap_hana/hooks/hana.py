@@ -150,7 +150,7 @@ class SapHanaHook(DbApiHook):
         """
         return tuple(map(cls._make_resultrow_cell_serializable, row))
 
-    def _make_common_data_structure(self, result: T | Sequence[T]) -> tuple | list[tuple]:
+    def _make_common_data_structure(self, result: T | Sequence[T]) -> tuple | list[tuple] | None:
         """
         Override the DbApiHook '_make_common_data_structure' method.
 
@@ -161,6 +161,8 @@ class SapHanaHook(DbApiHook):
         a single ResultRow if the 'fetchone' handler is used.
         :return: A list of tuples if the 'fetchall' handler is used. A single tuple if the 'fetchone' handler is used.
         """
+        if not result:
+            return result
         if isinstance(result, Sequence):
             return list(map(self._make_resultrow_common, result))
         return self._make_resultrow_common(result)

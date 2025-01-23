@@ -36,7 +36,6 @@ def example_hana_dag():
     create_table = SQLExecuteQueryOperator(
         task_id="create_table",
         conn_id="hana_default",
-        handler=None,
         sql="""
         CREATE TABLE airflow.fake_vehicle_registrations (
             vin NVARCHAR(17),

@@ -225,6 +225,19 @@ class TestSapHanaHook:
         common_result = hook._make_common_data_structure(result)
         assert common_result == expected_data_structure
 
+    @pytest.mark.parametrize(
+        "handler, empty_result", [("fetchone", None), ("fetchall", []), ("fetchall", None)]
+    )
+    @mock.patch("airflow_provider_sap_hana.hooks.hana.SapHanaHook._make_resultrow_common")
+    def test_make_common_data_structure_empty_result(
+        self, mock_make_resultrow_common, handler, empty_result, cursor, db_hook
+    ):
+        hook = db_hook()
+        getattr(cursor, handler).return_value = empty_result
+        result = getattr(cursor, handler)()
+        hook._make_common_data_structure(result)
+        mock_make_resultrow_common.assert_not_called()
+
     @pytest.mark.parametrize("handler", ["fetchone", "fetchall"])
     def test_common_data_structure_is_serializable(self, handler, cursor, db_hook):
         hook = db_hook()
