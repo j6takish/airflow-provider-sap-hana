@@ -25,8 +25,9 @@ dynamic = [
 ]
 dependencies = [
     "apache-airflow>=2.9.0",
-    "hdbcli>=2.23.24",
-    "sqlalchemy-hana>=3.0.0"
+    "hdbcli>=2.23.27",
+    "sqlalchemy-hana>=3.0.0",
+    "apache-airflow-providers-common-sql>=1.23.0"
 ]
 
 [project.urls]

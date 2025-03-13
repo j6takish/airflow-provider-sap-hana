@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import csv
-from datetime import datetime
 
 from airflow.decorators import dag, task
 from airflow.operators.empty import EmptyOperator
 from airflow.providers.common.sql.operators.sql import BranchSQLOperator, SQLExecuteQueryOperator
 from faker import Faker
 from faker.providers import automotive, person
+from pendulum import datetime
 
 from airflow_provider_sap_hana.hooks.hana import SapHanaHook
 
@@ -61,7 +61,7 @@ def example_hana_dag():
 
         with open("/tmp/fake_data.csv", mode="w", encoding="utf-8") as f:
             writer = csv.writer(f)
-            for _ in range(100000):
+            for _ in range(1000000):
                 vin = fake.vin()
                 owner_name_first = fake.first_name().upper()
                 owner_name_last = fake.last_name().upper()
@@ -91,24 +91,12 @@ def example_hana_dag():
             rows = list(csv.reader(f))
 
         hook = SapHanaHook()
-        hook.insert_rows(
+        hook.bulk_insert_rows(
             table="airflow.fake_vehicle_registrations",
             rows=rows,
-            target_fields=[
-                "vin",
-                "owner_name_first",
-                "owner_name_last",
-                "address",
-                "city",
-                "state",
-                "postal_code",
-                "country",
-                "created_at",
-            ],
+            commit_every=100000,
             replace=True,
-            executemany=True,
             autocommit=True,
-            commit_every=10000,
         )
 
     get_rows = SQLExecuteQueryOperator(

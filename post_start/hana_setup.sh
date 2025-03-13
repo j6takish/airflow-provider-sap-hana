@@ -14,11 +14,11 @@ ${HDBSQL_PATH} -a -x -i ${HANA_INSTANCE} -d ${HANA_DATABASE} -u ${HANA_USER} -p 
       DECLARE schemaExists INTEGER := 0;
 
       SELECT COUNT(*) INTO schemaExists
-      FROM SYS.SCHEMAS
-      WHERE SCHEMA_NAME = 'AIRFLOW';
+      FROM sys.schemas
+      WHERE schema_name = 'AIRFLOW';
 
       IF schemaExists = 0 THEN
-        EXEC 'CREATE SCHEMA AIRFLOW';
+        EXEC 'CREATE SCHEMA airflow';
       END IF;
     END;
 "
