@@ -74,11 +74,11 @@ class TestSapHanaHook:
     @pytest.mark.parametrize(
         "extra, called_with_extra",
         [
-            ('{"nodeConnectTimeout": "1000"}', {"nodeConnectTimeout": "1000"}),
-            ('{"packetSizeLimit": "1073741823"}', {"packetSizeLimit": "1073741823"}),
+            ('{"nodeConnectTimeout": "1000"}', {"nodeconnecttimeout": "1000"}),
+            ('{"packetSizeLimit": "1073741823"}', {"packetsizelimit": "1073741823"}),
             (
-                '{"prefetch": "true", "cursorHoldabilityType": "rollback"}',
-                {"prefetch": "true", "cursorHoldabilityType": "rollback"},
+                '{"prefetch": "true", "cursorholdabilitytype": "rollback"}',
+                {"prefetch": "true", "cursorholdabilitytype": "rollback"},
             ),
         ],
     )
@@ -135,6 +135,53 @@ class TestSapHanaHook:
     def test_reserved_words_equal_sa_hana_reserved_words(self, mock_hook):
         hook = mock_hook()
         assert hook.reserved_words == RESERVED_WORDS
+
+    @pytest.mark.parametrize(
+        "extra, called_with_traceoptions",
+        [('{"traceOptions": "SQL=DEBUG,TIMING=ON"}', "SQL=DEBUG,TIMING=ON"), ("{}", "SQL=INFO,FLUSH=ON")],
+    )
+    @mock.patch("airflow_provider_sap_hana.hooks.hana.hdbcli.dbapi.connect")
+    def test_get_conn_with_log_messaging_enabled(
+        self, mock_connect, extra, called_with_traceoptions, mock_conn, mock_hook
+    ):
+        hook = mock_hook(enable_db_log_messages=True, extra=extra)
+        mock_connect.return_value = mock_conn
+        hook.get_conn()
+        mock_conn.ontrace.assert_called_once_with(hook._log_message, called_with_traceoptions)
+
+    @mock.patch("airflow_provider_sap_hana.hooks.hana.hdbcli.dbapi.connect")
+    def test_get_conn_with_log_messaging_disabled(self, mock_connect, mock_conn, mock_hook):
+        hook = mock_hook(enable_db_log_messages=False)
+        mock_connect.return_value = mock_conn
+        hook.get_conn()
+        mock_conn.ontrace.assert_not_called()
+
+    @mock.patch("airflow_provider_sap_hana.hooks.hana.hdbcli.dbapi.connect")
+    def test_db_log_messages(
+        self, mock_connect, mock_conn, mock_dml_cursor, mock_insert_values, mock_hook, caplog
+    ):
+        with caplog.at_level(50):
+            hook = mock_hook(enable_db_log_messages=True)
+            mock_connect.return_value = mock_conn
+            mock_conn.cursor.return_value = mock_dml_cursor
+
+            connect_message = "libSQLDBCHDB 2.23.27.1738012173\nSYSTEM: Airflow\n"
+            executemanyprepared_message = "::GET ROWS AFFECTED [0xmock00]\nROWS: 10"
+            mock_conn.side_effect = hook._log_message(connect_message)
+            mock_dml_cursor.executemanyprepared.side_effect = hook._log_message(executemanyprepared_message)
+
+            hook.bulk_insert_rows(
+                table="mock",
+                rows=mock_insert_values,
+                target_fields=["mock_col1", "mock_col2"],
+            )
+
+        hook.get_db_log_messages()
+        # are they indented 4 spaces and is libSQLDBCHDB on a newline?
+        expected_connect_message = "\n    libSQLDBCHDB 2.23.27.1738012173\n    SYSTEM: Airflow\n"
+        expected_executemanyprepared_message = "    ::GET ROWS AFFECTED [0xmock00]\n    ROWS: 10"
+        assert expected_connect_message in caplog.text
+        assert expected_executemanyprepared_message in caplog.text
 
 
 class TestSapHanaResultRowSerialization:
@@ -250,8 +297,8 @@ class TestSapHanaStreamRecords:
         hook = mock_hook()
         mock_connect.return_value = mock_conn
         mock_cursor.fetchone.side_effect = exception(message)
+        results = hook._stream_records("SELECT mock FROM dummy", mock_cursor)
         with pytest.raises(exception):
-            results = hook._stream_records("SELECT mock FROM dummy", mock_cursor)
             next(results)
         mock_cursor.close.assert_called_once()
         mock_conn.close.assert_called_once()

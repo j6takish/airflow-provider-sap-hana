@@ -5,8 +5,10 @@ from functools import wraps
 
 def make_cursor_description_available_immediately(func):
     """
-    Ensure that the hook attributes 'descriptions' and 'last_description' are available immediately after executing the
-    SQL statement, without having to first call 'next' on the iterator.
+    Ensure that the cursor description is available immediately after executing the SQL statement.
+
+    The hook attributes 'descriptions' and 'last_description' will be available without having to first call
+    'next' on the generator returned by the 'stream_rows' method.
 
     :param func: The function to decorate, typically one that streams rows from a cursor.
     :return: The function which yields rows from a cursor.

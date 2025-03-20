@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Generator, Iterable, Mapping, Sequence
 from contextlib import closing, suppress
 from datetime import datetime
+from textwrap import indent
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import hdbcli.dbapi
@@ -32,8 +34,9 @@ class SapHanaHook(DbApiHook):
     Additional connection properties and SQLDBC properties can be passed as key: value pairs into the extra
     connection argument.
 
-    :param args: Arguments passed to DbApiHook.
-    :param kwargs: Keyword arguments passed to DbApiHook.
+    :param enable_db_log_messages: If enabled, logs messages sent to the client during the session. The default options
+    are 'SQL=INFO,FLUSH=ON'. If you wish to change the log level or any other options, pass in the 'traceOptions'
+    keyword argument into the extra connection argument.
     """
 
     conn_name_attr = "hana_conn_id"
@@ -46,13 +49,17 @@ class SapHanaHook(DbApiHook):
     _placeholder = "?"
     SQLALCHEMY_SCHEME = "hana+hdbcli"
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, enable_db_log_messages: bool = False, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.schema = kwargs.pop("schema", None)
+        self.enable_db_log_messages = enable_db_log_messages
+        self.db_log_messages: deque = deque(maxlen=50)
 
     @property
     def replace_statement_format(self) -> str:
         """
+        SAP HANA uses 'UPSERT' as it's replace statement.
+
         Using the 'WITH PRIMARY KEY' clause is recommended syntax for SAP HANA. This is orders of magnitude faster
         than using 'UPSERT' without the additional clause.
         """
@@ -94,8 +101,8 @@ class SapHanaHook(DbApiHook):
         """
         Override the DbApiHook 'inspector' property.
 
-        The Inspector used for the SAP HANA database is an
-        instance of HANAInspector and offers an additional method
+        The Inspector used for SAP HANA is an
+        instance of HANAInspector and offers an additional method,
         which returns the OID (object id) for the given table name.
 
         :return: A HANAInspector object.
@@ -121,9 +128,21 @@ class SapHanaHook(DbApiHook):
             "port": connection.port,
             "databasename": self.schema or connection.schema,
         }
-        for key, val in connection.extra_dejson.items():
+        for key, val in self.connection_extra_lower.items():
             conn_args[key] = val
-        return hdbcli.dbapi.connect(**conn_args)
+        trace_options = conn_args.pop("traceoptions", "SQL=INFO,FLUSH=ON")
+        conn = hdbcli.dbapi.connect(**conn_args)
+        if self.enable_db_log_messages:
+            conn.ontrace(self._log_message, trace_options)  # noqa: hdbcli says ontrace takes no arguments but it does
+        return conn
+
+    def _log_message(self, message: str) -> None:
+        lines = message.splitlines(True)
+        if lines and "libSQLDBCHDB" in lines[0]:
+            lines[0] = "\n" + lines[0]
+        joined = "".join(lines)
+        indented = indent(joined, prefix="    ")
+        self.db_log_messages.append(indented)
 
     def set_autocommit(self, conn: HDBCLIConnection, autocommit: bool) -> None:
         """
@@ -267,25 +286,22 @@ class SapHanaHook(DbApiHook):
         """
         nb_rows = 0
         sql = self._generate_insert_sql(table, rows[0], target_fields, replace)
-        rows = list(map(self._serialize_cells, rows))
+        chunksize = len(rows) if not commit_every else commit_every
+        chunked_serialized_rows = chunked(map(self._serialize_cells, rows), chunksize)
         with self._create_autocommit_connection(autocommit) as conn:
             with closing(conn.cursor()) as cur:
                 cur.prepare(sql, newcursor=False)
                 if self.log_sql:
                     self.log.info("Prepared statement: %s", sql)
 
-                if not commit_every:
-                    cur.executemanyprepared(rows)
+                for chunk in chunked_serialized_rows:
+                    cur.executemanyprepared(chunk)
                     if not autocommit:
                         conn.commit()
                     nb_rows += cur.rowcount
-                else:
-                    chunked_rows = chunked(rows, commit_every)
-                    for chunk in chunked_rows:
-                        cur.executemanyprepared(chunk)
-                        if not autocommit:
-                            conn.commit()
-                        nb_rows += cur.rowcount
-                        self.log.info("Loaded %s rows into %s so far", nb_rows, table)
-
+                    self.log.info("Loaded %s rows into %s so far", nb_rows, table)
         self.log.info("Done loading. Loaded a total of %s rows into %s", nb_rows, table)
+
+    def get_db_log_messages(self, conn: None = None) -> None:
+        if self.db_log_messages:
+            self.log.info("".join(self.db_log_messages))

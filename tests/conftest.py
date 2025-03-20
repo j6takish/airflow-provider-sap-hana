@@ -13,7 +13,7 @@ from airflow_provider_sap_hana.hooks.hana import SapHanaHook
 
 @pytest.fixture
 def mock_hook():
-    def _mock_hook(schema_override=False, extra=None):
+    def _mock_hook(enable_db_log_messages=False, schema_override=False, extra=None):
         connection = Connection(
             conn_type="hana",
             host="hanahost",
@@ -24,7 +24,10 @@ def mock_hook():
         )
         if extra:
             connection.extra = extra
-        hook = SapHanaHook(schema="schema_override" if schema_override else None)
+        hook = SapHanaHook(
+            enable_db_log_messages=enable_db_log_messages,
+            schema="schema_override" if schema_override else None,
+        )
         hook.get_connection = mock.Mock(return_value=connection)
         return hook
 

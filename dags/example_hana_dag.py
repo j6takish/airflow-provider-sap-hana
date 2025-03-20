@@ -90,7 +90,7 @@ def example_hana_dag():
         with open("/tmp/fake_data.csv", encoding="utf-8") as f:
             rows = list(csv.reader(f))
 
-        hook = SapHanaHook()
+        hook = SapHanaHook(enable_db_log_messages=True)
         hook.bulk_insert_rows(
             table="airflow.fake_vehicle_registrations",
             rows=rows,
@@ -98,6 +98,7 @@ def example_hana_dag():
             replace=True,
             autocommit=True,
         )
+        hook.get_db_log_messages()
 
     get_rows = SQLExecuteQueryOperator(
         task_id="get_rows",

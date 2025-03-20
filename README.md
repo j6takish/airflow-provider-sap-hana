@@ -46,7 +46,7 @@ After initialization is complete, you should see a message like this:
 ~~~
 airflow-init_1       | Upgrades done
 airflow-init_1       | Admin user airflow created
-airflow-init_1       | 2.10.4
+airflow-init_1       | 2.10.5
 start_airflow-init_1 exited with code 0
 ~~~
 
