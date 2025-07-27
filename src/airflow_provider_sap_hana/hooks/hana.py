@@ -1,22 +1,23 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Generator, Iterable, Mapping, Sequence
+from collections.abc import Generator, Iterable, Iterator, Mapping, Sequence
 from contextlib import closing, suppress
 from datetime import datetime
+from itertools import tee
 from textwrap import indent
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import hdbcli.dbapi
-from airflow.providers.common.sql.hooks.handlers import fetch_one_handler
-from airflow.providers.common.sql.hooks.sql import DbApiHook
-from airflow.utils.module_loading import import_string
 from methodtools import lru_cache
 from more_itertools import chunked
 from sqlalchemy import inspect
 from sqlalchemy.engine.url import URL
 from sqlalchemy.exc import NoSuchModuleError
 
+from airflow.providers.common.sql.hooks.handlers import fetch_one_handler
+from airflow.providers.common.sql.hooks.sql import DbApiHook
+from airflow.utils.module_loading import import_string
 from airflow_provider_sap_hana.hooks.decorators import make_cursor_description_available_immediately
 
 if TYPE_CHECKING:
@@ -240,6 +241,15 @@ class SapHanaHook(DbApiHook):
             cur.close()
             cur.connection.close()
 
+    @staticmethod
+    def _get_sample_row(rows: Sequence[Any] | Iterator[Any]):
+        if hasattr(rows, "__next__"):
+            rows_orig, rows_copy = tee(rows, 2)
+            sample_row = next(rows_orig)
+            return sample_row, rows_copy
+        sample_row = rows[0]
+        return sample_row, rows
+
     def stream_records(
         self, sql: str, parameters: Iterable | Mapping[str, Any] | None = None
     ) -> Generator[tuple[Any]]:
@@ -251,8 +261,8 @@ class SapHanaHook(DbApiHook):
         The hook attributes 'descriptions' and 'last_description' are available immediately after executing the
         SQL statement, without having to first call 'next' on the iterator.
 
-        :param: sql: The sql statement.
-        :param: parameters: The parameters to be bound to the sql statement.
+        :param sql: The sql statement.
+        :param parameters: The parameters to be bound to the sql statement.
         :return: An iterator of tuples.
         """
         self.descriptions = []
@@ -261,7 +271,7 @@ class SapHanaHook(DbApiHook):
     def bulk_insert_rows(
         self,
         table: str,
-        rows: list,
+        rows: Sequence[Any] | Iterator[Any],
         target_fields: list | None = None,
         commit_every: int = 10000,
         replace: bool = False,
@@ -285,8 +295,9 @@ class SapHanaHook(DbApiHook):
         :return: None.
         """
         nb_rows = 0
-        sql = self._generate_insert_sql(table, rows[0], target_fields, replace)
-        chunksize = len(rows) if not commit_every else commit_every
+        sample_row, rows = self._get_sample_row(rows)
+        sql = self._generate_insert_sql(table, sample_row, target_fields, replace)
+        chunksize = None if not commit_every else commit_every
         chunked_serialized_rows = chunked(map(self._serialize_cells, rows), chunksize)
         with self._create_autocommit_connection(autocommit) as conn:
             with closing(conn.cursor()) as cur:

@@ -1,3 +1,3 @@
-FROM apache/airflow:2.10.5
+FROM apache/airflow:3.0.3
 
-RUN pip install airflow-provider-sap-hana Faker
+RUN pip install airflow_provider_sap_hana Faker

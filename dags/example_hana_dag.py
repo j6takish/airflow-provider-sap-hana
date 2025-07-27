@@ -2,20 +2,27 @@ from __future__ import annotations
 
 import csv
 
-from airflow.decorators import dag, task
-from airflow.operators.empty import EmptyOperator
-from airflow.providers.common.sql.operators.sql import BranchSQLOperator, SQLExecuteQueryOperator
+try:
+    from airflow.sdk import dag, task
+except ImportError:
+    from airflow.decorators import dag, task
+try:
+    from airflow.providers.standard.operators.empty import EmptyOperator
+except ImportError:
+    from airflow.operators.empty import EmptyOperator
+
 from faker import Faker
 from faker.providers import automotive, person
 from pendulum import datetime
 
+from airflow.providers.common.sql.operators.sql import BranchSQLOperator, SQLExecuteQueryOperator
 from airflow_provider_sap_hana.hooks.hana import SapHanaHook
 
 
 @dag(
     dag_id="example_hana_dag",
     start_date=datetime(2024, 12, 20),
-    schedule_interval="@once",
+    schedule="@once",
     max_active_runs=1,
     catchup=False,
 )
@@ -87,17 +94,18 @@ def example_hana_dag():
 
     @task(trigger_rule="none_failed_min_one_success")
     def insert_into_hana():
-        with open("/tmp/fake_data.csv", encoding="utf-8") as f:
-            rows = list(csv.reader(f))
-
         hook = SapHanaHook(enable_db_log_messages=True)
-        hook.bulk_insert_rows(
-            table="airflow.fake_vehicle_registrations",
-            rows=rows,
-            commit_every=100000,
-            replace=True,
-            autocommit=True,
-        )
+
+        with open("/tmp/fake_data.csv", encoding="utf-8") as f:
+            rows = csv.reader(f)
+            hook.bulk_insert_rows(
+                table="airflow.fake_vehicle_registrations",
+                rows=rows,
+                commit_every=100000,
+                replace=True,
+                autocommit=True,
+            )
+
         hook.get_db_log_messages()
 
     get_rows = SQLExecuteQueryOperator(

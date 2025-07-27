@@ -78,16 +78,26 @@ fabric.properties
 # Android studio 3.1+ serialized cache file
 .idea/caches/build_file_checksums.ser
 
-# Local package build
-dist/
-
-# HANA Express volumes
-hana/
 
 # Airflow logs, config, plugins
 logs/
 config/
 plugins/
 
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
 # env file
 .env
+
+# Virtual environments
+.venv
+
+# UV Lock File
+
+uv.lock

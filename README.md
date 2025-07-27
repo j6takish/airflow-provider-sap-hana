@@ -46,7 +46,7 @@ After initialization is complete, you should see a message like this:
 ~~~
 airflow-init_1       | Upgrades done
 airflow-init_1       | Admin user airflow created
-airflow-init_1       | 2.10.5
+airflow-init_1       | 3.0.3
 start_airflow-init_1 exited with code 0
 ~~~
 
@@ -54,10 +54,6 @@ start_airflow-init_1 exited with code 0
 Before you start HANA Express, you need to create a directory to persist data outside the container and grant
 it the proper permissions.
 
-~~~
-mkdir -p ./hana
-sudo chown 12000:79 ./hana
-~~~
 To start hana-express, run.
 ~~~
 docker compose up hana-express -d

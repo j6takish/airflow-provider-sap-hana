@@ -1,13 +1,8 @@
 #!/bin/bash
 
 set -euo pipefail
-HANA_USER="SYSTEM"
-HANA_PASSWORD="${MASTER_PASSWORD}"
-HANA_INSTANCE="90"
-HANA_DATABASE="HXE"
-HDBSQL_PATH="/usr/sap/HXE/HDB${HANA_INSTANCE}/exe/hdbsql"
 
-${HDBSQL_PATH} -a -x -i ${HANA_INSTANCE} -d ${HANA_DATABASE} -u ${HANA_USER} -p "${HANA_PASSWORD}" -B UTF8 \
+"${HDBSQL_PATH}" -a -x -i 90 -d HXE -u SYSTEM -p "${MASTER_PASSWORD}" -B UTF8 \
 "
   DO
     BEGIN

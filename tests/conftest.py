@@ -4,10 +4,10 @@ import datetime
 from unittest import mock
 
 import pytest
-from airflow.models.connection import Connection
 from hdbcli.dbapi import Connection as HDBCLIConnection, Cursor
 from hdbcli.resultrow import ResultRow
 
+from airflow.models import Connection
 from airflow_provider_sap_hana.hooks.hana import SapHanaHook
 
 
@@ -49,16 +49,24 @@ def mock_resultrows():
 
 @pytest.fixture
 def mock_insert_values():
-    data = []
-    for _ in range(20):
-        data.append(("mock1", "mock2"))
-    return data
+    def _mock_insert_values(generator=False):
+        if not generator:
+            return [("mock1", "mock2") for _ in range(20)]
+        return (
+            (
+                "mock1",
+                "mock2",
+            )
+            for _ in range(20)
+        )
+
+    return _mock_insert_values
 
 
 @pytest.fixture
 def mock_cursor(mock_resultrows):
     result_iterator = iter(mock_resultrows)
-    cur = mock.MagicMock(autospec=Cursor, rowcount=-1)
+    cur = mock.MagicMock(spec=Cursor, rowcount=-1)
     cur.__iter__.return_value = result_iterator
     cur.fetchone.side_effect = lambda: next(result_iterator, None)
     cur.fetchall.side_effect = lambda: list(result_iterator)
@@ -74,15 +82,15 @@ def mock_cursor(mock_resultrows):
 
 @pytest.fixture
 def mock_conn(mock_cursor):
-    conn = mock.MagicMock(autospec=HDBCLIConnection)
+    conn = mock.MagicMock(pec=HDBCLIConnection)
     conn.cursor.return_value = mock_cursor
-    mock_cursor.connection = conn
+
     return conn
 
 
 @pytest.fixture
 def mock_dml_cursor():
-    cur = mock.MagicMock(autospec=Cursor, rowcount=-1)
+    cur = mock.MagicMock(spec=Cursor, rowcount=-1)
     cur.executemany.side_effect = lambda sql, values: setattr(cur, "rowcount", len(values))
     cur.executemanyprepared.side_effect = lambda values: setattr(cur, "rowcount", len(values))
     cur.description = None

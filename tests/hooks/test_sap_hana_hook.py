@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from unittest import mock
 
 import pytest
-from airflow.exceptions import AirflowException
 from hdbcli.dbapi import ProgrammingError
 from sqlalchemy_hana.dialect import RESERVED_WORDS
+
+from airflow.exceptions import AirflowException
 
 
 class TestSapHanaHook:
@@ -107,8 +109,8 @@ class TestSapHanaHook:
         hook = mock_hook()
         mock_connect.return_value = mock_conn
         mock_conn.getautocommit.return_value = is_autocommit_set
-        conn = hook.get_conn()
-        autocommit = hook.get_autocommit(conn)
+
+        autocommit = hook.get_autocommit(mock_conn)
         mock_conn.getautocommit.assert_called_once()
         assert autocommit == expected
 
@@ -118,8 +120,8 @@ class TestSapHanaHook:
         hook = mock_hook()
         mock_connect.return_value = mock_conn
         mock_conn.setautocommit.return_value = autocommit
-        conn = hook.get_conn()
-        hook.set_autocommit(conn, autocommit)
+
+        hook.set_autocommit(mock_conn, autocommit)
         mock_conn.setautocommit.assert_called_once_with(autocommit)
 
     def test_dialect_name_is_hana(self, mock_hook):
@@ -129,6 +131,7 @@ class TestSapHanaHook:
     @mock.patch("airflow_provider_sap_hana.hooks.hana.import_string")
     def test_get_reserved_words_import_dialect(self, mock_import, mock_hook):
         hook = mock_hook()
+
         hook.get_reserved_words(hook.dialect_name)
         mock_import.assert_called_once_with("sqlalchemy_hana.dialect")
 
@@ -146,6 +149,7 @@ class TestSapHanaHook:
     ):
         hook = mock_hook(enable_db_log_messages=True, extra=extra)
         mock_connect.return_value = mock_conn
+
         hook.get_conn()
         mock_conn.ontrace.assert_called_once_with(hook._log_message, called_with_traceoptions)
 
@@ -153,6 +157,7 @@ class TestSapHanaHook:
     def test_get_conn_with_log_messaging_disabled(self, mock_connect, mock_conn, mock_hook):
         hook = mock_hook(enable_db_log_messages=False)
         mock_connect.return_value = mock_conn
+
         hook.get_conn()
         mock_conn.ontrace.assert_not_called()
 
@@ -160,19 +165,19 @@ class TestSapHanaHook:
     def test_db_log_messages(
         self, mock_connect, mock_conn, mock_dml_cursor, mock_insert_values, mock_hook, caplog
     ):
+        connect_message = "libSQLDBCHDB 2.23.27.1738012173\nSYSTEM: Airflow\n"
+        executemanyprepared_message = "::GET ROWS AFFECTED [0xmock00]\nROWS: 10"
+
+        hook = mock_hook(enable_db_log_messages=True)
+        mock_connect.return_value = mock_conn
+        mock_conn.cursor.return_value = mock_dml_cursor
+        mock_conn.side_effect = hook._log_message(connect_message)
+        mock_dml_cursor.executemanyprepared.side_effect = hook._log_message(executemanyprepared_message)
         with caplog.at_level(50):
-            hook = mock_hook(enable_db_log_messages=True)
-            mock_connect.return_value = mock_conn
-            mock_conn.cursor.return_value = mock_dml_cursor
-
-            connect_message = "libSQLDBCHDB 2.23.27.1738012173\nSYSTEM: Airflow\n"
-            executemanyprepared_message = "::GET ROWS AFFECTED [0xmock00]\nROWS: 10"
-            mock_conn.side_effect = hook._log_message(connect_message)
-            mock_dml_cursor.executemanyprepared.side_effect = hook._log_message(executemanyprepared_message)
-
+            rows = mock_insert_values()
             hook.bulk_insert_rows(
                 table="mock",
-                rows=mock_insert_values,
+                rows=rows,
                 target_fields=["mock_col1", "mock_col2"],
             )
 
@@ -263,6 +268,7 @@ class TestSapHanaStreamRecords:
         hook = mock_hook()
         mock_connect.return_value = mock_conn
         mock_conn.cursor.return_value = mock_cursor
+
         results = hook._stream_records(mock_conn, mock_cursor)
         mock_cursor.fetchone.assert_not_called()
         next(results)
@@ -276,6 +282,8 @@ class TestSapHanaStreamRecords:
     ):
         hook = mock_hook()
         mock_connect.return_value = mock_conn
+        mock_cursor.connection = mock_conn
+        mock_connect.cursor.return_value = mock_cursor
 
         results = hook._stream_records(mock_conn, mock_cursor)
         list(results)
@@ -296,7 +304,10 @@ class TestSapHanaStreamRecords:
     ):
         hook = mock_hook()
         mock_connect.return_value = mock_conn
+        mock_cursor.connection = mock_conn
+        mock_connect.cursor.return_value = mock_cursor
         mock_cursor.fetchone.side_effect = exception(message)
+
         results = hook._stream_records("SELECT mock FROM dummy", mock_cursor)
         with pytest.raises(exception):
             next(results)
@@ -310,6 +321,7 @@ class TestSapHanaStreamRecords:
         hook = mock_hook()
         mock_connect.return_value = mock_conn
         mock_conn.cursor.return_value = mock_cursor
+
         hook._stream_records(mock_connect, mock_cursor)
         expected_last_description = (
             ("MOCK_STRING",),
@@ -331,6 +343,7 @@ class TestSapHanaStreamRecords:
         mock_connect.return_value = mock_conn
         mock_conn.cursor.return_value = mock_cursor
         mock_cursor.execute.side_effect = ProgrammingError("Bad SQL statement")
+
         with pytest.raises(ProgrammingError):
             hook.stream_records("SELECT mock FROM dummy")
 
@@ -339,24 +352,44 @@ class TestSapHanaStreamRecords:
 
 
 class TestSapHanaHookBulkInsertRows:
-    def test_simpler_serialize_cells_result_equals_dbapihook_insert_rows_serialize_cells(
-        self, mock_insert_values, mock_hook
+    @pytest.mark.parametrize("is_generator", [True, False])
+    def test_get_sample_row_returns_sample_row_and_copy_original_rows(
+        self, is_generator, mock_hook, mock_insert_values
     ):
         hook = mock_hook()
+        rows = mock_insert_values(generator=is_generator)
 
-        dbapihook_insert_rows_values_call = list(
-            map(
-                lambda row: hook._serialize_cells(row, None),
-                mock_insert_values,
-            )
+        sample_row, new_rows = hook._get_sample_row(rows)
+        assert sample_row == (
+            "mock1",
+            "mock2",
         )
-        sap_hana_hook_bulk_insert_call = list(map(hook._serialize_cells, mock_insert_values))
-        assert dbapihook_insert_rows_values_call == sap_hana_hook_bulk_insert_call
+        if is_generator:
+            assert isinstance(new_rows, Iterator)
+            assert len(list(new_rows)) == 20
+        else:
+            assert isinstance(new_rows, list)
+            assert len(new_rows) == 20
 
+    @pytest.mark.parametrize("is_generator", [True, False])
+    @mock.patch("airflow_provider_sap_hana.hooks.hana.tee")
+    def test_get_sample_row_tee_called(self, mock_tee, is_generator, mock_hook, mock_insert_values):
+        hook = mock_hook()
+        rows = mock_insert_values(generator=is_generator)
+        mock_tee.return_value = rows, rows
+
+        hook._get_sample_row(rows)
+        if not is_generator:
+            mock_tee.assert_not_called()
+        else:
+            mock_tee.assert_called_once_with(rows, 2)
+
+    @pytest.mark.parametrize("is_generator", [True, False])
     @mock.patch("airflow_provider_sap_hana.hooks.hana.hdbcli.dbapi.connect")
     def test_prepare_cursor(
         self,
         mock_connect,
+        is_generator,
         mock_conn,
         mock_dml_cursor,
         mock_hook,
@@ -365,16 +398,31 @@ class TestSapHanaHookBulkInsertRows:
         hook = mock_hook()
         mock_connect.return_value = mock_conn
         mock_conn.cursor.return_value = mock_dml_cursor
+        rows = mock_insert_values(generator=is_generator)
+        sample_row, new_rows = hook._get_sample_row(rows)
 
-        expected_sql = hook._generate_insert_sql("mock", mock_insert_values[0], ["mock_col1", "mock_col2"])
-        hook.bulk_insert_rows(table="mock", rows=mock_insert_values, target_fields=["mock_col1", "mock_col2"])
+        expected_sql = hook._generate_insert_sql("mock", sample_row, ["mock_col1", "mock_col2"])
+        hook.bulk_insert_rows(table="mock", rows=new_rows, target_fields=["mock_col1", "mock_col2"])
         mock_dml_cursor.prepare.assert_called_once_with(expected_sql, newcursor=False)
 
-    @pytest.mark.parametrize("commit_every, expected_call_count", [(0, 1), (5, 4), (10, 2), (15, 2)])
+    @pytest.mark.parametrize(
+        "is_generator, commit_every, expected_call_count",
+        [
+            (True, 0, 1),
+            (True, 5, 4),
+            (True, 10, 2),
+            (True, 15, 2),
+            (False, 0, 1),
+            (False, 5, 4),
+            (False, 10, 2),
+            (False, 15, 2),
+        ],
+    )
     @mock.patch("airflow_provider_sap_hana.hooks.hana.hdbcli.dbapi.connect")
     def test_bulk_insert_rows_batches(
         self,
         mock_connect,
+        is_generator,
         commit_every,
         expected_call_count,
         mock_conn,
@@ -385,8 +433,9 @@ class TestSapHanaHookBulkInsertRows:
         hook = mock_hook()
         mock_connect.return_value = mock_conn
         mock_conn.cursor.return_value = mock_dml_cursor
+        rows = mock_insert_values(generator=is_generator)
 
-        hook.bulk_insert_rows(table="mock", rows=mock_insert_values, commit_every=commit_every)
+        hook.bulk_insert_rows(table="mock", rows=rows, commit_every=commit_every)
         assert mock_dml_cursor.executemanyprepared.call_count == expected_call_count
 
     @pytest.mark.parametrize(
@@ -406,9 +455,9 @@ class TestSapHanaHookBulkInsertRows:
     ):
         hook = mock_hook()
         mock_connect.return_value = mock_conn
-        hook.bulk_insert_rows(
-            table="mock", rows=mock_insert_values, commit_every=commit_every, autocommit=autocommit
-        )
+        rows = mock_insert_values()
+
+        hook.bulk_insert_rows(table="mock", rows=rows, commit_every=commit_every, autocommit=autocommit)
         assert mock_conn.commit.call_count == expected_call_count
 
     @pytest.mark.parametrize(
@@ -429,9 +478,11 @@ class TestSapHanaHookBulkInsertRows:
         hook = mock_hook()
         mock_connect.return_value = mock_conn
         mock_conn.cursor.return_value = mock_dml_cursor
+        rows = mock_insert_values()
+
         hook.bulk_insert_rows(
             table="mock",
-            rows=mock_insert_values,
+            rows=rows,
             commit_every=commit_every,
             target_fields=["mock_col1", "mock_col2"],
         )
