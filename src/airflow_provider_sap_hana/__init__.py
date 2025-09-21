@@ -1,18 +1,14 @@
 from __future__ import annotations
 
-__version__ = "1.3.0"
+import packaging.version
 
+from airflow import __version__ as airflow_version
 
-def get_provider_info():
-    return {
-        "package-name": "airflow-provider-sap-hana",
-        "name": "SAP HANA Airflow Provider",
-        "description": "An Airflow provider to connect to SAP HANA",
-        "connection-types": [
-            {
-                "connection-type": "hana",
-                "hook-class-name": "airflow_provider_sap_hana.hooks.hana.SapHanaHook",
-            }
-        ],
-        "versions": [__version__],
-    }
+__version__ = "1.4.0"
+
+__all__ = ["__version__"]
+
+if packaging.version.parse(packaging.version.parse(airflow_version).base_version) < packaging.version.parse(
+    "2.10.0"
+):
+    raise RuntimeError(f"The package `airflow-providersap-hana-:{__version__}` needs Apache Airflow 2.10.0+")

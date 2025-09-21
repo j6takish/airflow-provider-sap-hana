@@ -1,37 +1,29 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.4
+    rev: v0.13.2
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: [--fix]
       - id: ruff-format
         types_or: [ python, pyi]
 
   - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: v0.10.0.1
+    rev: v0.11.0.1
     hooks:
     - id: shellcheck
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: trailing-whitespace
       - id: check-merge-conflict
       - id: check-toml
       - id: end-of-file-fixer
-      - id: name-tests-test
-        args:
-          - --pytest-test-first
 
   -   repo: https://github.com/pre-commit/sync-pre-commit-deps
       rev: v0.0.3
       hooks:
       -   id: sync-pre-commit-deps
-
-  - repo: https://github.com/thlorenz/doctoc
-    rev: v2.2.0
-    hooks:
-      - id: doctoc
 
   - repo: https://github.com/asottile/blacken-docs
     rev: 1.19.1

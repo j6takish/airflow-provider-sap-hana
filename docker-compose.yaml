@@ -134,6 +134,7 @@ services:
       - hana-db-volume:/hana/mounts
       - ./post_start:/hana/hooks/post_start/
     entrypoint: ["/bin/bash", "-c", "/run_hana --agree-to-sap-license"]
+    restart: always
 
   airflow-apiserver:
     <<: *airflow-common

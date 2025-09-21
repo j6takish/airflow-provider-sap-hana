@@ -3,35 +3,39 @@ from __future__ import annotations
 import datetime
 from unittest import mock
 
+import importlib_metadata as md
 import pytest
 from hdbcli.dbapi import Connection as HDBCLIConnection, Cursor
 from hdbcli.resultrow import ResultRow
+from packaging.version import Version
 
-from airflow.models import Connection
+from airflow.models.connection import Connection
 from airflow_provider_sap_hana.hooks.hana import SapHanaHook
 
 
 @pytest.fixture
-def mock_hook():
-    def _mock_hook(enable_db_log_messages=False, schema_override=False, extra=None):
-        connection = Connection(
-            conn_type="hana",
-            host="hanahost",
-            login="user",
-            password="pass123",
-            port=12345,
-            schema="hana_schema",
-        )
-        if extra:
-            connection.extra = extra
-        hook = SapHanaHook(
-            enable_db_log_messages=enable_db_log_messages,
-            schema="schema_override" if schema_override else None,
-        )
-        hook.get_connection = mock.Mock(return_value=connection)
-        return hook
+def is_sqlalchemy_v2():
+    sa_version = Version(md.version("sqlalchemy"))
+    return sa_version.major >= 2
 
-    return _mock_hook
+
+@pytest.fixture
+def mock_connection():
+    return Connection(
+        conn_type="hana",
+        conn_id="hana_mock",
+        host="hanahost",
+        login="user",
+        password="pass123",
+        port=12345,
+    )
+
+
+@pytest.fixture
+def mock_hook(mock_connection):
+    hook = SapHanaHook()
+    hook.get_connection = mock.Mock(return_value=mock_connection)
+    return hook
 
 
 @pytest.fixture
@@ -82,7 +86,7 @@ def mock_cursor(mock_resultrows):
 
 @pytest.fixture
 def mock_conn(mock_cursor):
-    conn = mock.MagicMock(pec=HDBCLIConnection)
+    conn = mock.MagicMock(spec=HDBCLIConnection)
     conn.cursor.return_value = mock_cursor
 
     return conn

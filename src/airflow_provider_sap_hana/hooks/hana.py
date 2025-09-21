@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from collections import deque
 from collections.abc import Generator, Iterable, Iterator, Mapping, Sequence
 from contextlib import closing, suppress
@@ -9,12 +10,14 @@ from textwrap import indent
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import hdbcli.dbapi
+from deprecated import deprecated
 from methodtools import lru_cache
 from more_itertools import chunked
 from sqlalchemy import inspect
 from sqlalchemy.engine.url import URL
 from sqlalchemy.exc import NoSuchModuleError
 
+from airflow.exceptions import AirflowProviderDeprecationWarning
 from airflow.providers.common.sql.hooks.handlers import fetch_one_handler
 from airflow.providers.common.sql.hooks.sql import DbApiHook
 from airflow.utils.module_loading import import_string
@@ -32,12 +35,16 @@ class SapHanaHook(DbApiHook):
     """
     Interact with SAP HANA.
 
-    Additional connection properties and SQLDBC properties can be passed as key: value pairs into the extra
-    connection argument.
+    Additional connection properties and SQLDBC properties can be passed as key-value pairs into the extra connection argument.
+
+    :param replace_with_primary_key: If enabled, SAP HANA will use 'UPSERT {} VALUES ({}) WITH PRIMARY KEY'. If disabled, 'UPSERT {} {} VALUES ({})' will be used.
+
+        Using the 'WITH PRIMARY KEY' clause is recommended syntax for SAP HANA. This is orders of magnitude faster
+        than using 'UPSERT' without the additional clause.
 
     :param enable_db_log_messages: If enabled, logs messages sent to the client during the session. The default options
-    are 'SQL=INFO,FLUSH=ON'. If you wish to change the log level or any other options, pass in the 'traceOptions'
-    keyword argument into the extra connection argument.
+        are 'SQL=INFO,FLUSH=ON'. To change the log level or other options, pass the 'traceOptions'
+        keyword argument into the extra connection argument.
     """
 
     conn_name_attr = "hana_conn_id"
@@ -48,13 +55,26 @@ class SapHanaHook(DbApiHook):
     supports_executemany = True
     _test_connection_sql = "SELECT 1 FROM dummy"
     _placeholder = "?"
-    SQLALCHEMY_SCHEME = "hana+hdbcli"
+    sqlalchemy_scheme = "hana+hdbcli"
+    ignore_extra_options = ["databasename"]
 
-    def __init__(self, *args, enable_db_log_messages: bool = False, **kwargs) -> None:
+    def __init__(
+        self, *args, replace_with_primary_key: bool = True, enable_db_log_messages: bool = False, **kwargs
+    ) -> None:
+        if "schema" in kwargs:
+            warnings.warn(
+                "The 'schema' arg has been renamed to 'database'. 'database' is more informative and also "
+                "avoids confusion with the HANA 'currentSchema' connection argument.",
+                AirflowProviderDeprecationWarning,
+                stacklevel=2,
+            )
+            kwargs["database"] = kwargs["schema"]
+        self.database = kwargs.pop("database", None)
         super().__init__(*args, **kwargs)
-        self.schema = kwargs.pop("schema", None)
+        self.replace_with_primary_key = replace_with_primary_key
         self.enable_db_log_messages = enable_db_log_messages
         self.db_log_messages: deque = deque(maxlen=50)
+        self._sqlalchemy_url = None
 
     @property
     def replace_statement_format(self) -> str:
@@ -65,12 +85,21 @@ class SapHanaHook(DbApiHook):
         than using 'UPSERT' without the additional clause.
         """
         if self._replace_statement_format is None:
-            self._replace_statement_format = self.connection_extra.get(
-                "replace_statement_format", "UPSERT {} {} VALUES ({}) WITH PRIMARY KEY"
-            )
+            if self.replace_with_primary_key:
+                replace_stmt = "UPSERT {} {} VALUES ({}) WITH PRIMARY KEY"
+            else:
+                replace_stmt = "UPSERT {} {} VALUES ({})"
+            self._replace_statement_format = replace_stmt
         return self._replace_statement_format
 
     @property
+    @deprecated(
+        reason=(
+            "The 'replace_statement_format_backup' property will soon be removed. "
+            "Please set the 'replace_with_primary_key' hook parameter to False to UPSERT without the PRIMARY KEY clause"
+        ),
+        category=AirflowProviderDeprecationWarning,
+    )
     def replace_statement_format_backup(self) -> str:
         """This is a backup replace statement for working with tables that do not have a primary key."""
         return "UPSERT {} {} VALUES ({})"
@@ -87,15 +116,22 @@ class SapHanaHook(DbApiHook):
 
     @property
     def sqlalchemy_url(self) -> URL:
-        connection = self.connection
-        return URL.create(
-            drivername=self.SQLALCHEMY_SCHEME,
-            host=connection.host,
-            username=connection.login,
-            password=connection.password,
-            port=connection.port,
-            database=self.schema or connection.schema,
-        )
+        if not self._sqlalchemy_url:
+            connection = self.connection
+            query = {}
+            for key, val in self.connection_extra_lower.items():
+                if key not in self.ignore_extra_options:
+                    query[key] = val
+            self._sqlalchemy_url = URL.create(
+                drivername=self.sqlalchemy_scheme,
+                host=connection.host,
+                username=connection.login,
+                password=connection.password,
+                port=connection.port,
+                database=self.database or connection.schema,
+                query=query,
+            )
+        return self._sqlalchemy_url
 
     @property
     def inspector(self) -> HANAInspector:
@@ -111,6 +147,9 @@ class SapHanaHook(DbApiHook):
         engine = self.get_sqlalchemy_engine()
         return inspect(engine)
 
+    def get_uri(self):
+        return self.sqlalchemy_url.render_as_string(hide_password=True)
+
     def get_conn(self) -> HDBCLIConnection:
         """
         Connect to a SAP HANA database.
@@ -122,15 +161,16 @@ class SapHanaHook(DbApiHook):
         :return: A hdbcli Connection object.
         """
         connection = self.connection
+        sqlalchemy_url = self.sqlalchemy_url
         conn_args = {
             "address": connection.host,
             "user": connection.login,
             "password": connection.password,
             "port": connection.port,
-            "databasename": self.schema or connection.schema,
+            **sqlalchemy_url.query,
         }
-        for key, val in self.connection_extra_lower.items():
-            conn_args[key] = val
+        if sqlalchemy_url.database:
+            conn_args["databasename"] = sqlalchemy_url.database
         trace_options = conn_args.pop("traceoptions", "SQL=INFO,FLUSH=ON")
         conn = hdbcli.dbapi.connect(**conn_args)
         if self.enable_db_log_messages:
@@ -247,8 +287,10 @@ class SapHanaHook(DbApiHook):
             rows_orig, rows_copy = tee(rows, 2)
             sample_row = next(rows_orig)
             return sample_row, rows_copy
-        sample_row = rows[0]
-        return sample_row, rows
+        if len(rows):
+            sample_row = rows[0]
+            return sample_row, rows
+        return [], rows
 
     def stream_records(
         self, sql: str, parameters: Iterable | Mapping[str, Any] | None = None
